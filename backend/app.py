@@ -3,7 +3,10 @@ import pandas as pd
 from flask import Flask, request
 import os
 from sqlite3 import connect
-# from ..reproducibility.scripts.fig10a import get_query_output
+
+import sys
+ 
+import fig8a_mini 
 
 # import db
 
@@ -31,11 +34,15 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 df = pd.DataFrame()
 conn = connect(':memory:', check_same_thread=False)
 chart_config = {}
- 
+backdoor={}
+q_type='count'
 
 #TODO delete this
 # df=pd.read_csv(UPLOAD_FOLDER+'/german.csv')
 # df.to_sql(name='german', con=conn)
+# for var in df.columns:
+#     backdoor[var]=['age','sex']
+# fig8a_mini.set_backdoor(backdoor)
 #TODO UP HERE
 
 
@@ -49,7 +56,7 @@ def failure_response(message, code=404):
 
 # Plot config
 def gen_chart_config(data):
-    return {
+    globals()['chart_config'] = {
         'type': 'bar',
         'data': data,
         'options': {
@@ -61,6 +68,8 @@ def gen_chart_config(data):
             }
         }
     }
+    print(chart_config)
+    return chart_config
 
 ## JS config example
 # const labels = ['count credit', 'avg credit']
@@ -110,7 +119,8 @@ def gen_chart_data(qry_rslt:pd.DataFrame):
 
 def append_bar_chart_config(chart_config, newSeries, newLabel):
     # chart_config not passed in as a reference
-    idx = len(chart_config['data']['labels'])
+    print(chart_config)
+    idx = len(chart_config['data']['datasets'])
     # no change to labels, only append to datasets
     # a single dataset contain xSeries for each yLabel
     chart_config['data']['datasets'].append({
@@ -119,6 +129,7 @@ def append_bar_chart_config(chart_config, newSeries, newLabel):
         'backgroundColor': [COLOR_SET[idx % len(COLOR_SET)]],
         'borderWidth': 1
     })
+    globals()['chart_config'] = chart_config
     return chart_config
 
 @app.route("/api/upload_csv",  methods=["POST"])
@@ -129,12 +140,17 @@ def upload_csv():
         tablename = data_filename.split(".")[0]
         f.save(os.path.join(app.config['UPLOAD_FOLDER'], data_filename))
         # read csv
-        df = pd.read_csv(os.path.join(app.config['UPLOAD_FOLDER'], data_filename), encoding='unicode_escape')
+        globals()['df'] = pd.read_csv(os.path.join(app.config['UPLOAD_FOLDER'], data_filename), encoding='unicode_escape')
         df.to_sql(name=tablename, con=conn)
-        return success_response(df.to_html())
+        for var in df.columns:
+            backdoor[var]=['age','sex']
+        fig8a_mini.set_backdoor(backdoor)
+        
+
+        return success_response(df.head(200) .to_html())
 
     except:
-        return failure_response()
+        return failure_response("failed to upload")
 
 
 
@@ -148,16 +164,22 @@ def sql_query():
 
     rslt:pd.DataFrame = pd.read_sql(sql_cmd, conn)
     print(rslt)
+
     # COUNT
     if 'COUNT' in sql_cmd:
         print("COUNT")
         # 
         chart_data = gen_chart_data(rslt)
-        chart_config = gen_chart_config(chart_data)
+        
+        print(rslt)
+        globals()['chart_config'] = gen_chart_config(chart_data)
         print(chart_config)
         # print(json.dumps(chart_config))
 
         # 
+    else:
+        chart_data = gen_chart_data(rslt)
+        globals()['chart_config'] = gen_chart_config(chart_data)
     
     # TODO what if analysis 
     # get_query_output(df,q_type,AT,prelst,prevallst,postlst,postvallst,Ac,c,g_Ac_lst,interference, blocks)
@@ -165,22 +187,38 @@ def sql_query():
     # print(chart_data)
     return success_response(json.dumps(chart_config))
 
-@app.route("/api/whatif",  methods=["POST"])
+@app.route("/api/whatif_qry", methods=["POST"])
 def whatif_query():
-    sql_cmd = request.headers.get('qry')
+    # AT: Any,
+    # prelst: Any,
+    # prevallst: Any,
+    # postlst: Any,
+    # postvallst: Any,
+    # Ac: Any,
+    # c: Any,
+    # g_Ac_lst: Any,
+    # interference: Any,
+    # blocks: Any
 
-    # do query result and return visualized result
-
+    AT=''
+    prelst=[]
+    prevallst=[]
+    postlst=['credit']
+    postvallst=[1]
+    # Ac=['status']
+    # c=['1.0']
+    Ac = request.headers.get('Ac').split(',')
+    c = request.headers.get('c').split(',')
+    g_Ac_lst=['*']
+    interference=''
+    blocks={}
     # TODO More types
+    prob = fig8a_mini.get_query_output(df,q_type,AT,prelst,prevallst,postlst,postvallst,Ac,c,g_Ac_lst,interference,blocks)
 
-    rslt:pd.DataFrame = pd.read_sql(sql_cmd, conn)
-    print(rslt)
-    # COUNT
-    chart_param = {}
-    if 'COUNT' in sql_cmd:
-        print("COUNT")
+    newSeries = [prob * len(df)]
+    globals()['chart_config'] = append_bar_chart_config(chart_config, newSeries, "Update {} to {}".format(Ac, c))
 
-    return success_response(rslt.to_html())
+    return success_response(json.dumps(globals()['chart_config']))
 
 
 @app.route("/api/henlo")
