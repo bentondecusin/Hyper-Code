@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import pandas as pd
 from flask import Flask, request
 import os
@@ -17,9 +18,9 @@ UPLOAD_FOLDER = os.path.join('static', 'uploads')
 ALLOWED_EXTENSIONS = {'csv'}
 
 COLOR_SET = [
-        'rgba(255, 99, 132, 0.2)',
-        'rgba(255, 159, 64, 0.2)',
-        'rgba(255, 205, 86, 0.2)',
+        'rgba(255, 10, 10, 0.2)',
+        'rgba(10, 255, 10, 0.2)',
+        'rgba(10, 10, 255, 0.2)',
         'rgba(75, 192, 192, 0.2)',
         'rgba(54, 162, 235, 0.2)',
         'rgba(153, 102, 255, 0.2)',
@@ -32,17 +33,17 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 # TODO enable session based df & connection
 # Global Var
 df = pd.DataFrame()
-conn = connect(':memory:', check_same_thread=False)
+conn : sqlite3.Connection = connect(':memory:', check_same_thread=False)
 chart_config = {}
 backdoor={}
 q_type='count'
 
 #TODO delete this
-# df=pd.read_csv(UPLOAD_FOLDER+'/german.csv')
-# df.to_sql(name='german', con=conn)
-# for var in df.columns:
-#     backdoor[var]=['age','sex']
-# fig8a_mini.set_backdoor(backdoor)
+df=pd.read_csv(UPLOAD_FOLDER+'/german.csv')
+df.to_sql(name='german', con=conn)
+for var in df.columns:
+    backdoor[var]=['age','sex']
+fig8a_mini.set_backdoor(backdoor)
 #TODO UP HERE
 
 
@@ -57,14 +58,24 @@ def failure_response(message, code=404):
 # Plot config
 def gen_chart_config(data):
     globals()['chart_config'] = {
+        'indexAxis': "y",
+
         'type': 'bar',
         'data': data,
         'options': {
             'scales': {
-            'y': {
-                'beginAtZero': True,
-                'title': 'testing'
-                }
+                'y': {
+                    'beginAtZero': True,
+                    'title': 'testing',
+                },
+                'xAxes': [{ 'stacked': True }],
+                  'yAxes': [{
+    'stacked': False,
+    'ticks': {
+      'beginAtZero': True,
+    },
+  }]
+
             }
         }
     }
@@ -105,7 +116,8 @@ def gen_chart_data(qry_rslt:pd.DataFrame):
             'label': 'Original',
             'data': list(qry_rslt.iloc[0].tolist()),
             'backgroundColor': [COLOR_SET[0]],
-            'borderWidth': 1
+            'borderWidth': 1,
+            'maxBarThickness':20
         }]
     # for i in range(len(qry_rslt.iloc)): 
     #     row = qry_rslt.iloc[i]
@@ -127,7 +139,9 @@ def append_bar_chart_config(chart_config, newSeries, newLabel):
         'label': newLabel,
         'data': newSeries,
         'backgroundColor': [COLOR_SET[idx % len(COLOR_SET)]],
-        'borderWidth': 1
+        'borderWidth': 1,
+        'maxBarThickness':20
+
     })
     globals()['chart_config'] = chart_config
     return chart_config
@@ -141,15 +155,17 @@ def upload_csv():
         f.save(os.path.join(app.config['UPLOAD_FOLDER'], data_filename))
         # read csv
         globals()['df'] = pd.read_csv(os.path.join(app.config['UPLOAD_FOLDER'], data_filename), encoding='unicode_escape')
-        df.to_sql(name=tablename, con=conn)
+        try:
+            df.to_sql(name=tablename, con=conn)
+        except:
+            pass 
         for var in df.columns:
             backdoor[var]=['age','sex']
         fig8a_mini.set_backdoor(backdoor)
-        
+        return success_response(df.head(200).to_html(classes=["table-fixed", "border-separate"]))
 
-        return success_response(df.head(200) .to_html())
-
-    except:
+    except Exception as e:
+        print(e)
         return failure_response("failed to upload")
 
 
@@ -163,15 +179,13 @@ def sql_query():
     # TODO More types
 
     rslt:pd.DataFrame = pd.read_sql(sql_cmd, conn)
-    print(rslt)
+    print(rslt.head())
 
     # COUNT
     if 'COUNT' in sql_cmd:
         print("COUNT")
         # 
         chart_data = gen_chart_data(rslt)
-        
-        print(rslt)
         globals()['chart_config'] = gen_chart_config(chart_data)
         print(chart_config)
         # print(json.dumps(chart_config))
