@@ -229,9 +229,7 @@ def get_C_set(df, C):
 def get_val(row, target, target_val):
     i = 0
     while i < len(target):
-        print(row)
-        print(target_val)
-        if not int(row[target[i]]) == int(target_val[i]):
+        if not int(float(row[target[i]])) == int(float(target_val[i])):
             return 0
         i += 1
     return 1
@@ -284,7 +282,7 @@ def train_regression_raw(df, conditional, conditional_values, AT):
         X = df
     # regr = RandomForestRegressor(random_state=0)
     regr = LinearRegression()  # random_state=0)
-    print(df[AT])
+
     regr.fit(X, df[AT])
     return regr
 

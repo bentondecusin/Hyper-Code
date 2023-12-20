@@ -35,8 +35,9 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 df = pd.DataFrame()
 sql_cmd = ""
 conn: sqlite3.Connection = connect(":memory:", check_same_thread=False)
-chart_config = {}
+# chart_config = {}
 backdoor = {}
+rslt: pd.DataFrame = None
 
 # TODO delete this
 # df = pd.read_csv(UPLOAD_FOLDER + "/german.csv")
@@ -63,7 +64,7 @@ def failure_response(message, code=404):
 
 # Plot config
 def gen_chart_config(data):
-    globals()["chart_config"] = {
+    chart_config = {
         "indexAxis": "y",
         "type": "bar",
         "data": data,
@@ -136,23 +137,19 @@ def gen_chart_data(qry_rslt: pd.DataFrame):
     return data
 
 
-def append_bar_chart_config(chart_config, newSeries, newLabel):
+def append_bar_chart_config(chart_config, newSeries, newLabel, idx):
     # chart_config not passed in as a reference
 
-    idx = len(chart_config["data"]["datasets"])
     # no change to labels, only append to datasets
     # a single dataset contain xSeries for each yLabel
-    chart_config["data"]["datasets"].append(
-        {
-            "label": newLabel,
-            "data": newSeries,
-            "backgroundColor": [COLOR_SET[idx % len(COLOR_SET)]],
-            "borderWidth": 1,
-            "maxBarThickness": 20,
-        }
-    )
-    globals()["chart_config"] = chart_config
-    return chart_config
+
+    return {
+        "label": newLabel,
+        "data": newSeries,
+        "backgroundColor": [COLOR_SET[idx % len(COLOR_SET)]],
+        "borderWidth": 1,
+        "maxBarThickness": 20,
+    }
 
 
 def new_data(chart_config, newSeries, newLabel):
@@ -178,11 +175,19 @@ def upload_csv():
         tablename = data_filename.split(".")[0]
         f.save(os.path.join(app.config["UPLOAD_FOLDER"], data_filename))
         # read csv
-        globals()["df"] = pd.read_csv(
-            os.path.join(app.config["UPLOAD_FOLDER"], data_filename),
-            encoding="unicode_escape",
-            dtype=str,
-        ).apply(lambda x: x.astype(str).str.lower())
+        if "txt" in data_filename:
+            globals()["df"] = pd.read_csv(
+                os.path.join(app.config["UPLOAD_FOLDER"], data_filename),
+                encoding="unicode_escape",
+                dtype=str,
+                delimiter=" ",
+            ).apply(lambda x: x.astype(str).str.lower())
+        else:
+            globals()["df"] = pd.read_csv(
+                os.path.join(app.config["UPLOAD_FOLDER"], data_filename),
+                encoding="unicode_escape",
+                dtype=str,
+            ).apply(lambda x: x.astype(str).str.lower())
         df.columns = map(str.lower, df.columns)
         try:
             df.to_sql(name=tablename, con=conn)
@@ -208,16 +213,16 @@ def sql_query():
         sql_cmd = request.headers.get("qry")
         plot_mode = request.headers.get("plotMode")
         # do query result and return visualized result
-
-        rslt: pd.DataFrame = pd.read_sql(sql_cmd, conn)
+        global rslt
+        rslt = pd.read_sql(sql_cmd, conn)
         print(rslt.head())
 
         # COUNT
         if "COUNT" in sql_cmd.upper():
             print("COUNT")
-            #
+
             chart_data = gen_chart_data(rslt)
-            globals()["chart_config"] = gen_chart_config(chart_data)
+            chart_config = gen_chart_config(chart_data)
             print(chart_config)
             # print(json.dumps(chart_config))
 
@@ -225,7 +230,7 @@ def sql_query():
 
         elif "AVG" in sql_cmd.upper():
             chart_data = gen_chart_data(rslt)
-            globals()["chart_config"] = gen_chart_config(chart_data)
+            chart_config = gen_chart_config(chart_data)
         else:
             return failure_response("COUNT or AVG queries only")
 
@@ -270,27 +275,35 @@ def whatif_query():
     # TODO make the error log more detailed. See examples in SQL call
 
     # NOTE Sample usage, may use different procedural call, or other implementations of get_query_output
-    prob = get_query_output(
-        df=df,
-        q_type=q_type,
-        AT=AT,
-        prelst=prelst,
-        prevallst=prevallst,
-        postlst=postlst,
-        postvallst=postvallst,
-        Ac=Ac,
-        c=c,
-        g_Ac_lst=g_Ac_lst,
-        interference=interference,
-        blocks=blocks,
-    )
-    print(prob)
-    newSeries = [prob * len(df)]
-    globals()["chart_config"] = append_bar_chart_config(
-        chart_config, newSeries, "Update {} to {}".format(Ac, c)
-    )
+    bar_to_compare = []
+    chart_data = gen_chart_data(rslt)
+    chart_config = gen_chart_config(chart_data)
+    for i in range(len(Ac)):
+        prob = get_query_output(
+            df=df,
+            q_type=q_type,
+            AT=AT,
+            prelst=prelst,
+            prevallst=prevallst,
+            postlst=postlst,
+            postvallst=postvallst,
+            Ac=[Ac[i]],
+            c=[c[i]],
+            g_Ac_lst=g_Ac_lst,
+            interference=interference,
+            blocks=blocks,
+        )
+        newSeries = [prob * len(df)]
+        bar_to_compare.append(
+            append_bar_chart_config(
+                chart_config, newSeries, "Update {} to {}".format(Ac[i], c[i]), i + 1
+            )
+        )
+    new_chart = gen_chart_config(chart_data)
+    for new_bar in bar_to_compare:
+        new_chart["data"]["datasets"].append(new_bar)
 
-    return success_response(json.dumps(globals()["chart_config"]))
+    return success_response(json.dumps(new_chart))
 
 
 @app.route("/api/henlo")
