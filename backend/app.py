@@ -7,7 +7,7 @@ from sqlite3 import connect
 
 import sys
 
-import fig8a_mini
+from realdata_mini import get_query_output
 
 # import db
 
@@ -42,11 +42,11 @@ backdoor = {}
 
 
 # TODO delete this
-df = pd.read_csv(UPLOAD_FOLDER + "/german.csv")
-df.to_sql(name="german", con=conn)
-for var in df.columns:
-    backdoor[var] = ["age", "sex"]
-fig8a_mini.set_backdoor(backdoor)
+# df = pd.read_csv(UPLOAD_FOLDER + "/german.csv")
+# df.to_sql(name="german", con=conn)
+# for var in df.columns:
+#     backdoor[var] = ["age", "sex"]
+# fig8a_mini.set_backdoor(backdoor)
 # TODO UP HERE
 
 
@@ -141,7 +141,7 @@ def gen_chart_data(qry_rslt: pd.DataFrame):
 
 def append_bar_chart_config(chart_config, newSeries, newLabel):
     # chart_config not passed in as a reference
-    print(chart_config)
+
     idx = len(chart_config["data"]["datasets"])
     # no change to labels, only append to datasets
     # a single dataset contain xSeries for each yLabel
@@ -189,9 +189,9 @@ def upload_csv():
             df.to_sql(name=tablename, con=conn)
         except:
             pass
-        for var in df.columns:
-            backdoor[var] = ["age", "sex"]
-        fig8a_mini.set_backdoor(backdoor)
+        # for var in df.columns:
+        #     backdoor[var] = ["age", "sex"]
+        # fig8a_mini.set_backdoor(backdoor)
         return success_upload_response(
             data=df.head(200).to_html(classes=["table-fixed", "border-separate"]),
             header=list(df),
@@ -205,34 +205,39 @@ def upload_csv():
 
 @app.route("/api/SQL", methods=["POST"])
 def sql_query():
-    sql_cmd = request.headers.get("qry")
-    plot_mode = request.headers.get("plotMode")
-    # do query result and return visualized result
+    try:
+        sql_cmd = request.headers.get("qry")
+        plot_mode = request.headers.get("plotMode")
+        # do query result and return visualized result
 
-    # TODO More types
+        rslt: pd.DataFrame = pd.read_sql(sql_cmd, conn)
+        print(rslt.head())
 
-    rslt: pd.DataFrame = pd.read_sql(sql_cmd, conn)
-    print(rslt.head())
+        # COUNT
+        if "COUNT" in sql_cmd.upper():
+            print("COUNT")
+            #
+            chart_data = gen_chart_data(rslt)
+            globals()["chart_config"] = gen_chart_config(chart_data)
+            print(chart_config)
+            # print(json.dumps(chart_config))
 
-    # COUNT
-    if "COUNT" in sql_cmd:
-        print("COUNT")
-        #
-        chart_data = gen_chart_data(rslt)
-        globals()["chart_config"] = gen_chart_config(chart_data)
-        print(chart_config)
-        # print(json.dumps(chart_config))
+            #
 
-        #
-    else:
-        chart_data = gen_chart_data(rslt)
-        globals()["chart_config"] = gen_chart_config(chart_data)
+        # TODO
+        elif "AVG" in sql_cmd.upper():
+            chart_data = gen_chart_data(rslt)
+            globals()["chart_config"] = gen_chart_config(chart_data)
+        else:
+            return failure_response("COUNT or AVG queries only")
 
-    # TODO what if analysis
-    # get_query_output(df,q_type,AT,prelst,prevallst,postlst,postvallst,Ac,c,g_Ac_lst,interference, blocks)
+        # print(chart_data)
+        return success_response(json.dumps(chart_config))
 
-    # print(chart_data)
-    return success_response(json.dumps(chart_config))
+    except pd.io.sql.DatabaseError as e:
+        return failure_response(message=str(e), code=400)
+    except Exception as e:
+        return failure_response(e)
 
 
 @app.route("/api/whatif_qry", methods=["POST"])
@@ -247,13 +252,14 @@ def whatif_query():
     # g_Ac_lst: Any,
     # interference: Any,
     # blocks: Any
+    # NOTE the REST API can be modified based on need. See more in documentation
 
-    plot_mode = request.headers.get("plotMode")
     AT = ""
     prelst = []
     prevallst = []
-    print(request.headers)
-    q_type = request.headers.get("qry_type")
+    plot_mode = request.headers.get("plotMode")
+    print(request.headers.keys)
+    q_type = request.headers.get("qt")
     postlst = request.headers.get("postlst").split(",")
     postvallst = request.headers.get("postvallst").split(",")
     Ac = request.headers.get("Ac").split(",")
@@ -261,27 +267,24 @@ def whatif_query():
     g_Ac_lst = ["*"]
     interference = ""
     blocks = {}
-    print(c)
-    print(Ac)
-    print(q_type)
-    print(postlst)
-    print(postvallst)
     # TODO More types
-    prob = fig8a_mini.get_query_output(
-        df,
-        q_type,
-        AT,
-        prelst,
-        prevallst,
-        postlst,
-        postvallst,
-        Ac,
-        c,
-        g_Ac_lst,
-        interference,
-        blocks,
-    )
 
+    # NOTE Sample usage, may use different procedural call, or other implementations of get_query_output
+    prob = get_query_output(
+        df=df,
+        q_type=q_type,
+        AT=AT,
+        prelst=prelst,
+        prevallst=prevallst,
+        postlst=postlst,
+        postvallst=postvallst,
+        Ac=Ac,
+        c=c,
+        g_Ac_lst=g_Ac_lst,
+        interference=interference,
+        blocks=blocks,
+    )
+    print(prob)
     newSeries = [prob * len(df)]
     globals()["chart_config"] = append_bar_chart_config(
         chart_config, newSeries, "Update {} to {}".format(Ac, c)
