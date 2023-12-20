@@ -7,7 +7,7 @@ from sqlite3 import connect
 
 import sys
 
-from realdata_mini import get_query_output
+from fig11a_mini import get_query_output
 
 # import db
 
@@ -37,9 +37,6 @@ sql_cmd = ""
 conn: sqlite3.Connection = connect(":memory:", check_same_thread=False)
 chart_config = {}
 backdoor = {}
-
-# TODO
-
 
 # TODO delete this
 # df = pd.read_csv(UPLOAD_FOLDER + "/german.csv")
@@ -184,7 +181,9 @@ def upload_csv():
         globals()["df"] = pd.read_csv(
             os.path.join(app.config["UPLOAD_FOLDER"], data_filename),
             encoding="unicode_escape",
-        )
+            dtype=str,
+        ).apply(lambda x: x.astype(str).str.lower())
+        df.columns = map(str.lower, df.columns)
         try:
             df.to_sql(name=tablename, con=conn)
         except:
@@ -224,7 +223,6 @@ def sql_query():
 
             #
 
-        # TODO
         elif "AVG" in sql_cmd.upper():
             chart_data = gen_chart_data(rslt)
             globals()["chart_config"] = gen_chart_config(chart_data)
@@ -264,10 +262,12 @@ def whatif_query():
     postvallst = request.headers.get("postvallst").split(",")
     Ac = request.headers.get("Ac").split(",")
     c = request.headers.get("c").split(",")
+    AT = request.headers.get("AT", "")
+    print(AT)
     g_Ac_lst = ["*"]
     interference = ""
     blocks = {}
-    # TODO More types
+    # TODO make the error log more detailed. See examples in SQL call
 
     # NOTE Sample usage, may use different procedural call, or other implementations of get_query_output
     prob = get_query_output(
