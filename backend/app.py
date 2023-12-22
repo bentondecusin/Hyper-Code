@@ -50,7 +50,11 @@ rslt: pd.DataFrame = None
 
 # generalized response formats
 def success_upload_response(data, header, code=200):
-    return json.dumps({"success": True, "data": data, "header": header}), code
+    header.append(len(df))
+    return (
+        json.dumps({"success": True, "data": data, "header": header}),
+        code,
+    )
 
 
 # generalized response formats
